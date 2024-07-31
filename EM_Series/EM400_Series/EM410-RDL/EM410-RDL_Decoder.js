@@ -120,17 +120,33 @@ function milesightDeviceDecode(bytes) {
         // HISTORY
         else if (channel_id === 0x20 && channel_type === 0xce) {
             var timestamp = readUInt32LE(bytes.slice(i, i + 4));
-            var distance = readUInt16LE(bytes.slice(i + 4, i + 6));
-            var temperature = readInt16LE(bytes.slice(i + 6, i + 8)) / 10;
+            var distance_value = readUInt16LE(bytes.slice(i + 4, i + 6));
+            var temperature_value = readUInt16LE(bytes.slice(i + 6, i + 8));
             var mutation = readUInt16LE(bytes.slice(i + 8, i + 10));
-            var alarm = readUInt8(bytes[i + 10]);
-            var event = readHistoryEvent(alarm);
+            var event_value = readUInt8(bytes[i + 10]);
             i += 11;
 
             var data = {};
             data.timestamp = timestamp;
-            data.distance = distance;
-            data.temperature = temperature;
+            if (distance_value === 0xfffd) {
+                data.distance_exception = "No Target";
+            } else if (distance_value === 0xffff) {
+                data.distance_exception = "Sensor Exception";
+            } else if (distance_value === 0xfffe) {
+                data.distance_exception = "Disabled";
+            } else {
+                data.distance = distance_value;
+            }
+
+            if (temperature_value === 0xfffe) {
+                data.temperature_exception = "Disabled";
+            } else if (temperature_value === 0xffff) {
+                data.temperature_exception = "Sensor Exception";
+            } else {
+                data.temperature = readInt16LE(bytes.slice(i + 6, i + 8)) / 10;
+            }
+
+            var event = readHistoryEvent(event_value);
             if (event.length > 0) {
                 data.event = event;
             }
