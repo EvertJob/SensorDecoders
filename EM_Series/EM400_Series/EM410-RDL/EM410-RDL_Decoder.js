@@ -98,7 +98,7 @@ function milesightDeviceDecode(bytes) {
         else if (channel_id === 0x94 && channel_type === 0x82) {
             var data = {};
             data.distance = readUInt16LE(bytes.slice(i, i + 2));
-            data.distance_mutation = readUInt16LE(bytes.slice(i + 2, i + 4));
+            data.distance_mutation = readInt16LE(bytes.slice(i + 2, i + 4));
             data.distance_alarm = readDistanceAlarm(bytes[i + 4]);
             i += 5;
 
@@ -122,7 +122,7 @@ function milesightDeviceDecode(bytes) {
             var timestamp = readUInt32LE(bytes.slice(i, i + 4));
             var distance_value = readUInt16LE(bytes.slice(i + 4, i + 6));
             var temperature_value = readUInt16LE(bytes.slice(i + 6, i + 8));
-            var mutation = readUInt16LE(bytes.slice(i + 8, i + 10));
+            var mutation = readInt16LE(bytes.slice(i + 8, i + 10));
             var event_value = readUInt8(bytes[i + 10]);
 
             var data = {};
