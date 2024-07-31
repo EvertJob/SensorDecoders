@@ -124,7 +124,6 @@ function milesightDeviceDecode(bytes) {
             var temperature_value = readUInt16LE(bytes.slice(i + 6, i + 8));
             var mutation = readUInt16LE(bytes.slice(i + 8, i + 10));
             var event_value = readUInt8(bytes[i + 10]);
-            i += 11;
 
             var data = {};
             data.timestamp = timestamp;
@@ -153,6 +152,7 @@ function milesightDeviceDecode(bytes) {
             if (event.indexOf("Mutation Alarm") !== -1) {
                 data.distance_mutation = mutation;
             }
+            i += 11;
 
             decoded.history = decoded.history || [];
             decoded.history.push(data);
