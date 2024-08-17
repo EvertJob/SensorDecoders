@@ -419,7 +419,7 @@ function setThresholdSensitive(threshold_sensitive) {
 
 /**
  * set peak sort
- * @param {number} peak_sort values: (0: "latest", 1: "strongest")
+ * @param {number} peak_sort values: (0: "closest", 1: "strongest")
  * @example { "peak_sort": 0 }
  */
 function setPeakSort(peak_sort) {
