@@ -83,6 +83,11 @@ function milesightDeviceDecode(bytes) {
             decoded.position = readPositionStatus(bytes[i]);
             i += 1;
         }
+        // RADAR SIGNAL STRENGTH
+        else if (channel_id === 0x06 && channel_type === 0xc7) {
+            decoded.radar_signal_rssi = readInt16LE(bytes.slice(i, i + 2)) / 100;
+            i += 1;
+        }
         // DISTANCE ALARM
         else if (channel_id === 0x84 && channel_type === 0x82) {
             var data = {};
@@ -108,12 +113,18 @@ function milesightDeviceDecode(bytes) {
         }
         // DISTANCE EXCEPTION ALARM
         else if (channel_id === 0xb4 && channel_type === 0x82) {
-            var data = {};
-            data.distance = readUInt16LE(bytes.slice(i, i + 2));
-            data.distance_exception = readDistanceException(bytes[i + 2]);
+            var distance_value = readUInt16LE(bytes.slice(i, i + 2));
+            var distance_exception = readDistanceException(bytes[i + 2]);
             i += 3;
 
-            decoded.distance = data.distance;
+            var data = {};
+            if (distance_value === 0xfffd || distance_value === 0xffff) {
+                // IGNORE NO TARGET AND SENSOR EXCEPTION
+            } else {
+                data.distance = distance_value;
+            }          
+            data.distance_exception = distance_exception
+
             decoded.event = decoded.event || [];
             decoded.event.push(data);
         }
