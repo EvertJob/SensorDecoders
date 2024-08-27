@@ -27,7 +27,7 @@ For more detailed information, please visit Milesight's [official website](https
 | Battery                 | 0x01 | 0x75 |   1    | battery(1B)<br />battery, unit: %                                                                                                                    |
 | Reset Event             | 0xFF | 0xFE |   1    | reset_event(1B)                                                                                                                                      |
 | Temperature             | 0x03 | 0x67 |   2    | temperature(2B)<br />temperature, read: int16/10, unit: ℃                                                                                            |
-| Distance                | 0x04 | 0x82 |   2    | distance(2B)<br />distance, read: uint16, unit: mm                                                                                                   |
+| Distance                | 0x04 | 0x82 |   2    | distance(2B)<br />distance, read: int16, unit: mm                                                                                                   |
 | Position                | 0x05 | 0x00 |   1    | position(1B)<br />position, values: (0: normal, 1: tilt)                                                                                             |
 | Distance Alarm          | 0x84 | 0x82 |   3    | distance(2B) + distance_alarm(1B)<br />distance_alarm, values: (0: threshold alarm release, 1: threshold alarm, 2: mutation alarm)                   |
 | Distance Mutation Alarm | 0x94 | 0x82 |   5    | distance(2B) + distance_mutation(2B) + distance_alarm(1B)                                                                                            |

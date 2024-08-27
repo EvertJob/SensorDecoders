@@ -63,6 +63,11 @@ function milesightDeviceDecode(bytes) {
             decoded.tsl_version = readTslVersion(bytes.slice(i, i + 2));
             i += 2;
         }
+        // DEVICE RESET EVENT
+        else if (channel_id === 0xff && channel_type === 0xfe) {
+            decoded.reset_event = 1;
+            i += 1;
+        }
         // BATTERY
         else if (channel_id === 0x01 && channel_type === 0x75) {
             decoded.battery = readUInt8(bytes[i]);
@@ -75,7 +80,7 @@ function milesightDeviceDecode(bytes) {
         }
         // DISTANCE
         else if (channel_id === 0x04 && channel_type === 0x82) {
-            decoded.distance = readUInt16LE(bytes.slice(i, i + 2));
+            decoded.distance = readInt16LE(bytes.slice(i, i + 2));
             i += 2;
         }
         // POSITION
@@ -86,12 +91,12 @@ function milesightDeviceDecode(bytes) {
         // RADAR SIGNAL STRENGTH
         else if (channel_id === 0x06 && channel_type === 0xc7) {
             decoded.radar_signal_rssi = readInt16LE(bytes.slice(i, i + 2)) / 100;
-            i += 1;
+            i += 2;
         }
         // DISTANCE ALARM
         else if (channel_id === 0x84 && channel_type === 0x82) {
             var data = {};
-            data.distance = readUInt16LE(bytes.slice(i, i + 2));
+            data.distance = readInt16LE(bytes.slice(i, i + 2));
             data.distance_alarm = readDistanceAlarm(bytes[i + 2]);
             i += 3;
 
@@ -102,7 +107,7 @@ function milesightDeviceDecode(bytes) {
         // DISTANCE MUTATION ALARM
         else if (channel_id === 0x94 && channel_type === 0x82) {
             var data = {};
-            data.distance = readUInt16LE(bytes.slice(i, i + 2));
+            data.distance = readInt16LE(bytes.slice(i, i + 2));
             data.distance_mutation = readInt16LE(bytes.slice(i + 2, i + 4));
             data.distance_alarm = readDistanceAlarm(bytes[i + 4]);
             i += 5;
@@ -113,17 +118,18 @@ function milesightDeviceDecode(bytes) {
         }
         // DISTANCE EXCEPTION ALARM
         else if (channel_id === 0xb4 && channel_type === 0x82) {
-            var distance_value = readUInt16LE(bytes.slice(i, i + 2));
+            var distance_raw_data = readUInt16LE(bytes.slice(i, i + 2));
+            var distance_value = readInt16LE(bytes.slice(i, i + 2));
             var distance_exception = readDistanceException(bytes[i + 2]);
             i += 3;
 
             var data = {};
-            if (distance_value === 0xfffd || distance_value === 0xffff) {
+            if (distance_raw_data === 0xfffd || distance_raw_data === 0xffff) {
                 // IGNORE NO TARGET AND SENSOR EXCEPTION
             } else {
                 data.distance = distance_value;
-            }          
-            data.distance_exception = distance_exception
+            }
+            data.distance_exception = distance_exception;
 
             decoded.event = decoded.event || [];
             decoded.event.push(data);
@@ -131,29 +137,32 @@ function milesightDeviceDecode(bytes) {
         // HISTORY
         else if (channel_id === 0x20 && channel_type === 0xce) {
             var timestamp = readUInt32LE(bytes.slice(i, i + 4));
-            var distance_value = readUInt16LE(bytes.slice(i + 4, i + 6));
-            var temperature_value = readUInt16LE(bytes.slice(i + 6, i + 8));
+            var distance_raw_data = readUInt16LE(bytes.slice(i + 4, i + 6));
+            var distance_value = readInt16LE(bytes.slice(i + 4, i + 6));
+            var temperature_raw_data = readUInt16LE(bytes.slice(i + 6, i + 8));
+            var temperature_value = readInt16LE(bytes.slice(i + 6, i + 8)) / 10;
             var mutation = readInt16LE(bytes.slice(i + 8, i + 10));
             var event_value = readUInt8(bytes[i + 10]);
+            i += 11;
 
             var data = {};
             data.timestamp = timestamp;
-            if (distance_value === 0xfffd) {
+            if (distance_raw_data === 0xfffd) {
                 data.distance_exception = "No Target";
-            } else if (distance_value === 0xffff) {
+            } else if (distance_raw_data === 0xffff) {
                 data.distance_exception = "Sensor Exception";
-            } else if (distance_value === 0xfffe) {
+            } else if (distance_raw_data === 0xfffe) {
                 data.distance_exception = "Disabled";
             } else {
                 data.distance = distance_value;
             }
 
-            if (temperature_value === 0xfffe) {
+            if (temperature_raw_data === 0xfffe) {
                 data.temperature_exception = "Disabled";
-            } else if (temperature_value === 0xffff) {
+            } else if (temperature_raw_data === 0xffff) {
                 data.temperature_exception = "Sensor Exception";
             } else {
-                data.temperature = readInt16LE(bytes.slice(i + 6, i + 8)) / 10;
+                data.temperature = temperature_value;
             }
 
             var event = readHistoryEvent(event_value);
@@ -163,10 +172,21 @@ function milesightDeviceDecode(bytes) {
             if (event.indexOf("Mutation Alarm") !== -1) {
                 data.distance_mutation = mutation;
             }
-            i += 11;
 
             decoded.history = decoded.history || [];
             decoded.history.push(data);
+        }
+        // DOWNLINK RESPONSE
+        else if (channel_id === 0xfe) {
+            result = handle_downlink_response(channel_type, bytes, i);
+            decoded = Object.assign(decoded, result.data);
+            i = result.offset;
+        }
+        // DOWNLINK RESPONSE
+        else if (channel_id === 0xf8) {
+            result = handle_downlink_response_ext(channel_type, bytes, i);
+            decoded = Object.assign(decoded, result.data);
+            i = result.offset;
         } else {
             break;
         }
@@ -311,4 +331,209 @@ function readHistoryEvent(status) {
     }
 
     return event;
+}
+
+// 0xFE
+function handle_downlink_response(channel_type, bytes, offset) {
+    var decoded = {};
+
+    switch (channel_type) {
+        case 0x06: // distance_alarm
+            var data = readUInt8(bytes[offset]);
+            var min = readInt16LE(bytes.slice(offset + 1, offset + 3));
+            var max = readInt16LE(bytes.slice(offset + 3, offset + 5));
+            // skip 4 bytes (reserved)
+            offset += 9;
+
+            var alarm_type = data & 0x07;
+            var id = (data >>> 3) & 0x07;
+            var alarm_release_report_enable = data >>> 7;
+
+            if (alarm_type === 5 && id === 2) {
+                decoded.distance_mutation_alarm = {};
+                decoded.distance_mutation_alarm.alarm_release_report_enable = alarm_release_report_enable;
+                decoded.distance_mutation_alarm.mutation = max;
+            } else {
+                decoded.distance_alarm = {};
+                decoded.distance_alarm.condition = alarm_type;
+                decoded.distance_alarm.alarm_release_report_enable = alarm_release_report_enable;
+                decoded.distance_alarm.min = min;
+                decoded.distance_alarm.max = max;
+            }
+            break;
+        case 0x1b: // distance_range
+            decoded.distance_range = {};
+            decoded.distance_range.mode = readUInt8(bytes[offset]);
+            // skip 2 bytes (reserved)
+            decoded.distance_range.max = readUInt16LE(bytes.slice(offset + 3, offset + 5));
+            offset += 5;
+            break;
+        case 0x1c:
+            decoded.recollection_counts = readUInt8(bytes[offset]);
+            decoded.recollection_interval = readUInt8(bytes[offset + 1]);
+            offset += 2;
+            break;
+        case 0x2a: // radar calibration
+            var calibrate_type = readUInt8(bytes[offset]);
+            offset += 1;
+
+            switch (calibrate_type) {
+                case 0:
+                    decoded.radar_calibration = 1;
+                    break;
+                case 1:
+                    decoded.radar_blind_calibration = 1;
+                    break;
+            }
+            break;
+        case 0x3e: // tilt_distance_link
+            decoded.tilt_distance_link = readUInt8(bytes[offset]);
+            offset += 1;
+            break;
+        case 0x4a: // sync_time
+            decoded.sync_time = 1;
+            offset += 1;
+            break;
+        case 0x68: // history_enable
+            decoded.history_enable = readUInt8(bytes[offset]);
+            offset += 1;
+            break;
+        case 0x69: // retransmit_enable
+            decoded.retransmit_enable = readUInt8(bytes[offset]);
+            offset += 1;
+            break;
+        case 0x6a:
+            var interval_type = readUInt8(bytes[offset]);
+            switch (interval_type) {
+                case 0:
+                    decoded.retransmit_interval = readUInt16LE(bytes.slice(offset + 1, offset + 3));
+                    break;
+                case 1:
+                    decoded.resend_interval = readUInt16LE(bytes.slice(offset + 1, offset + 3));
+                    break;
+            }
+            offset += 3;
+            break;
+        case 0x8e: // report_interval
+            // ignore the first byte
+            decoded.report_interval = readUInt16LE(bytes.slice(offset + 1, offset + 3));
+            offset += 3;
+            break;
+        case 0xab: // distance_calibration
+            decoded.distance_calibration = {};
+            decoded.distance_calibration.enable = readUInt8(bytes[offset]);
+            decoded.distance_calibration.distance = readInt16LE(bytes.slice(offset + 1, offset + 3));
+            offset += 3;
+            break;
+        case 0xbd: // timezone
+            decoded.timezone = readInt16LE(bytes.slice(offset, offset + 2)) / 60;
+            offset += 2;
+            break;
+        case 0xf2: // alarm_counts
+            decoded.alarm_counts = readUInt16LE(bytes.slice(offset, offset + 2));
+            offset += 2;
+            break;
+        default:
+            throw new Error("unknown downlink response");
+    }
+
+    return { data: decoded, offset: offset };
+}
+
+// 0xF8
+function handle_downlink_response_ext(channel_type, bytes, offset) {
+    var decoded = {};
+
+    switch (channel_type) {
+        case 0x12: // distance_mode
+            var distance_mode_result = readUInt8(bytes[offset + 1]);
+            if (distance_mode_result === 0) {
+                decoded.distance_mode = readUInt8(bytes[offset]);
+            }
+            offset += 2;
+            break;
+        case 0x13: // blind_detection_enable
+            var blind_detection_enable_result = readUInt8(bytes[offset + 1]);
+            if (blind_detection_enable_result === 0) {
+                decoded.blind_detection_enable = readUInt8(bytes[offset]);
+            }
+            offset += 2;
+            break;
+        case 0x14: // signal_quality
+            var signal_quality_result = readUInt8(bytes[offset + 2]);
+            if (signal_quality_result === 0) {
+                decoded.signal_quality = readInt16LE(bytes.slice(offset, offset + 2));
+            }
+            offset += 3;
+            break;
+        case 0x15: // distance_threshold_sensitive
+            var distance_threshold_sensitive_result = readUInt8(bytes[offset + 2]);
+            if (distance_threshold_sensitive_result === 0) {
+                decoded.distance_threshold_sensitive = readInt16LE(bytes.slice(offset, offset + 2)) / 10;
+            }
+            offset += 3;
+            break;
+        case 0x16: // peak_sorting
+            var peak_sorting_result = readUInt8(bytes[offset + 1]);
+            if (peak_sorting_result === 0) {
+                decoded.peak_sorting = readUInt8(bytes[offset]);
+            }
+            offset += 2;
+            break;
+        case 0x0d: // retransmit_config
+            var retransmit_config_result = readUInt8(bytes[offset + 3]);
+            if (retransmit_config_result === 0) {
+                decoded.retransmit_config = {};
+                decoded.retransmit_config.enable = readUInt8(bytes[offset]);
+                decoded.retransmit_config.retransmit_interval = readUInt16LE(bytes.slice(offset + 1, offset + 3));
+            }
+            offset += 4;
+            break;
+        case 0x39: // collection_interval
+            var collection_interval_result = readUInt8(bytes[offset + 2]);
+            if (collection_interval_result === 0) {
+                decoded.collection_interval = readUInt16LE(bytes.slice(offset, offset + 2));
+            }
+            offset += 3;
+            break;
+        default:
+            throw new Error("unknown downlink response");
+    }
+
+    return { data: decoded, offset: offset };
+}
+
+if (!Object.assign) {
+    Object.defineProperty(Object, "assign", {
+        enumerable: false,
+        configurable: true,
+        writable: true,
+        value: function (target) {
+            "use strict";
+            if (target == null) {
+                // TypeError if undefined or null
+                throw new TypeError("Cannot convert first argument to object");
+            }
+
+            var to = Object(target);
+            for (var i = 1; i < arguments.length; i++) {
+                var nextSource = arguments[i];
+                if (nextSource == null) {
+                    // Skip over if undefined or null
+                    continue;
+                }
+                nextSource = Object(nextSource);
+
+                var keysArray = Object.keys(Object(nextSource));
+                for (var nextIndex = 0, len = keysArray.length; nextIndex < len; nextIndex++) {
+                    var nextKey = keysArray[nextIndex];
+                    var desc = Object.getOwnPropertyDescriptor(nextSource, nextKey);
+                    if (desc !== undefined && desc.enumerable) {
+                        to[nextKey] = nextSource[nextKey];
+                    }
+                }
+            }
+            return to;
+        },
+    });
 }

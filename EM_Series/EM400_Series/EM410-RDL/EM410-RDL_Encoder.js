@@ -43,13 +43,19 @@ function milesightDeviceEncode(payload) {
         encoded = encoded.concat(setTimezone(payload.timezone));
     }
     if ("distance_range" in payload) {
-        encoded = encoded.concat(setDistanceRange(payload.distance_range.mode, payload.distance_range.min, payload.distance_range.max));
+        encoded = encoded.concat(setDistanceRange(payload.distance_range.mode, payload.distance_range.max));
+    }
+    if ("distance_alarm" in payload) {
+        encoded = encoded.concat(setDistanceAlarm(payload.distance_alarm.condition, payload.distance_alarm.alarm_release_report_enable, payload.distance_alarm.min, payload.distance_alarm.max));
+    }
+    if ("distance_mutation_alarm" in payload) {
+        encoded = encoded.concat(setDistanceMutationAlarm(payload.distance_mutation_alarm.alarm_release_report_enable, payload.distance_mutation_alarm.mutation));
     }
     if ("alarm_counts" in payload) {
         encoded = encoded.concat(setAlarmCounts(payload.alarm_counts));
     }
-    if ("radar_temperature_calibration" in payload) {
-        encoded = encoded.concat(setRadarTemperatureCalibration(payload.radar_temperature_calibration));
+    if ("radar_calibration" in payload) {
+        encoded = encoded.concat(setRadarCalibration(payload.radar_calibration));
     }
     if ("radar_blind_calibration" in payload) {
         encoded = encoded.concat(setRadarBlindCalibration(payload.radar_blind_calibration));
@@ -63,20 +69,23 @@ function milesightDeviceEncode(payload) {
     if ("blind_detection_enable" in payload) {
         encoded = encoded.concat(setBlindDetectionEnable(payload.blind_detection_enable));
     }
-    if ("recollection_count" in payload && "recollection_interval" in payload) {
-        encoded = encoded.concat(setRecollection(payload.recollection_count, payload.recollection_interval));
+    if ("recollection_counts" in payload && "recollection_interval" in payload) {
+        encoded = encoded.concat(setRecollection(payload.recollection_counts, payload.recollection_interval));
     }
     if ("signal_quality" in payload) {
         encoded = encoded.concat(setSignalQuality(payload.signal_quality));
     }
-    if ("threshold_sensitive" in payload) {
-        encoded = encoded.concat(setThresholdSensitive(payload.threshold_sensitive));
+    if ("distance_threshold_sensitive" in payload) {
+        encoded = encoded.concat(setDistanceThresholdSensitive(payload.distance_threshold_sensitive));
     }
-    if ("peak_sort" in payload) {
-        encoded = encoded.concat(setPeakSort(payload.peak_sort));
+    if ("peak_sorting" in payload) {
+        encoded = encoded.concat(setPeakSortingAlgorithm(payload.peak_sorting));
     }
-    if ("retransmit_config" in payload) {
-        encoded = encoded.concat(setRetransmitConfig(payload.retransmit_config.enable, payload.retransmit_config.interval));
+    if ("retransmit_enable" in payload) {
+        encoded = encoded.concat(setRetransmitEnable(payload.retransmit_enable));
+    }
+    if ("retransmit_interval" in payload) {
+        encoded = encoded.concat(setRetransmitInterval(payload.retransmit_interval));
     }
     if ("resend_interval" in payload) {
         encoded = encoded.concat(setResendInterval(payload.resend_interval));
@@ -92,6 +101,9 @@ function milesightDeviceEncode(payload) {
     }
     if ("clear_history" in payload) {
         encoded = encoded.concat(clearHistory(payload.clear_history));
+    }
+    if ("tilt_distance_link" in payload) {
+        encoded = encoded.concat(setTiltAndDistanceLink(payload.tilt_distance_link));
     }
 
     return encoded;
@@ -155,20 +167,20 @@ function setReportInterval(report_interval) {
 
 /**
  * set collection interval
- * @param {number} collection_interval unit: second, range: [10, 60]
+ * @param {number} collection_interval unit: minute, range: [1, 1440]
  * @example { "collection_interval": 300 }
  */
 function setCollectionInterval(collection_interval) {
     if (typeof collection_interval !== "number") {
         throw new Error("collection_interval must be a number");
     }
-    if (collection_interval < 10 || collection_interval > 60) {
-        throw new Error("collection_interval must be in range [10, 60]");
+    if (collection_interval < 1 || collection_interval > 1440) {
+        throw new Error("collection_interval must be in range [1, 1440]");
     }
 
     var buffer = new Buffer(4);
-    buffer.writeUInt8(0xff);
-    buffer.writeUInt8(0x02);
+    buffer.writeUInt8(0xf9);
+    buffer.writeUInt8(0x39);
     buffer.writeUInt16LE(collection_interval);
     return buffer.toBytes();
 }
@@ -210,32 +222,82 @@ function setTimezone(timezone) {
 
 /**
  * set distance range
- * @param {number} mode values: (0: "general", 1: "rain", 2: "dust")
- * @param {number} min
- * @param {number} max
- * @example { "distance_range": { "mode": 0, "min": 0, "max": 1000 } }
+ * @param {number} mode values: (0: "general", 1: "rainwater", 2: "wastewater")
+ * @param {number} max unit: mm
+ * @example { "distance_range": { "mode": 0, "max": 1000 } }
  */
-function setDistanceRange(mode, min, max) {
+function setDistanceRange(mode, max) {
     var mode_values = [0, 1, 2];
     if (mode_values.indexOf(mode) === -1) {
         throw new Error("distance_range.mode must be one of " + mode_values.join(", "));
     }
-    if (typeof min !== "number") {
-        throw new Error("distance_range.min must be a number");
-    }
     if (typeof max !== "number") {
         throw new Error("distance_range.max must be a number");
-    }
-    if (min > max) {
-        throw new Error("distance_range.min must be less than or equal to distance_range.max");
     }
 
     var buffer = new Buffer(7);
     buffer.writeUInt8(0xff);
     buffer.writeUInt8(0x1b);
     buffer.writeUInt8(mode);
-    buffer.writeUInt16LE(min);
+    buffer.writeUInt16LE(0);
     buffer.writeUInt16LE(max);
+    return buffer.toBytes();
+}
+
+/**
+ * set distance alarm
+ * @param {number} condition values: (0: disable, 1: below, 2: above, 3: between, 4: outside)
+ * @param {number} alarm_release_report_enable values: (0: disable, 1: enable)
+ * @param {number} min
+ * @param {number} max
+ * @example { "distance_alarm": { "condition": 1, "alarm_release_report_enable": 1, "min": 100, "max": 1000 } }
+ */
+function setDistanceAlarm(condition, alarm_release_report_enable, min, max) {
+    var condition_values = [0, 1, 2, 3, 4];
+    if (condition_values.indexOf(condition) === -1) {
+        throw new Error("distance_alarm.condition must be one of " + condition_values.join(", "));
+    }
+    var alarm_release_report_enable_values = [0, 1];
+    if (alarm_release_report_enable_values.indexOf(alarm_release_report_enable) === -1) {
+        throw new Error("distance_alarm.alarm_release_report_enable must be one of " + alarm_release_report_enable_values.join(", "));
+    }
+    if (typeof min !== "number") {
+        throw new Error("distance_alarm.min must be a number");
+    }
+    if (typeof max !== "number") {
+        throw new Error("distance_alarm.max must be a number");
+    }
+
+    var data = (alarm_release_report_enable << 7) | (1 << 3) | condition;
+
+    var buffer = new Buffer(11);
+    buffer.writeUInt8(0xff);
+    buffer.writeUInt8(0x06);
+    buffer.writeUInt8(data);
+    buffer.writeInt16LE(min);
+    buffer.writeInt16LE(max);
+    buffer.writeUInt16LE(0);
+    buffer.writeUInt16LE(0);
+    return buffer.toBytes();
+}
+
+/**
+ * set distance mutation alarm
+ * @param {number} alarm_release_report_enable values: (0: disable, 1: enable)
+ * @param {number} mutation
+ * @example { "distance_mutation_alarm": { "alarm_release_report_enable": 1, "mutation": 100 } }
+ */
+function setDistanceMutationAlarm(alarm_release_report_enable, mutation) {
+    var data = (alarm_release_report_enable << 7) | (2 << 3) | 5;
+
+    var buffer = new Buffer(11);
+    buffer.writeUInt8(0xff);
+    buffer.writeUInt8(0x06);
+    buffer.writeUInt8(data);
+    buffer.writeInt16LE(0x00);
+    buffer.writeInt16LE(mutation);
+    buffer.writeUInt16LE(0);
+    buffer.writeUInt16LE(0);
     return buffer.toBytes();
 }
 
@@ -245,7 +307,7 @@ function setDistanceRange(mode, min, max) {
  * @example { "alarm_counts": 10 }
  */
 function setAlarmCounts(alarm_counts) {
-    if (typeof alarm_count !== "number") {
+    if (typeof alarm_counts !== "number") {
         throw new Error("alarm_counts must be a number");
     }
     if (alarm_count < 1 || alarm_count > 1000) {
@@ -260,21 +322,20 @@ function setAlarmCounts(alarm_counts) {
 }
 
 /**
- * radar temperature calibration
+ * radar calibration
  * @param {number} radar_calibration_type values: (0: "no", 1: "yes")
- * @example { "radar_temperature_calibration": 0 }
+ * @example { "radar_calibration": 0 }
  */
-function setRadarTemperatureCalibration(radar_temperature_calibration) {
-    var radar_temperature_calibration = [0, 1];
-    if (radar_temperature_calibration.indexOf(radar_temperature_calibration) === -1) {
-        throw new Error("radar_temperature_calibration must be one of " + radar_temperature_calibration.join(", "));
+function setRadarCalibration(radar_calibration) {
+    var radar_calibration = [0, 1];
+    if (radar_calibration.indexOf(radar_calibration) === -1) {
+        throw new Error("radar_calibration must be one of " + radar_calibration.join(", "));
     }
 
-    var buffer = new Buffer(3);
-    buffer.writeUInt8(0xff);
-    buffer.writeUInt8(0x2a);
-    buffer.writeUInt8(radar_temperature_calibration);
-    return buffer.toBytes();
+    if (radar_calibration === 0) {
+        return [];
+    }
+    return [0xff, 0x2a, 0x00];
 }
 
 /**
@@ -287,12 +348,10 @@ function setRadarBlindCalibration(radar_blind_calibration) {
     if (radar_blind_calibration.indexOf(radar_blind_calibration) === -1) {
         throw new Error("radar_blind_calibration must be one of " + radar_blind_calibration.join(", "));
     }
-
-    var buffer = new Buffer(3);
-    buffer.writeUInt8(0xff);
-    buffer.writeUInt8(0x2a);
-    buffer.writeUInt8(radar_blind_calibration);
-    return buffer.toBytes();
+    if (radar_blind_calibration === 0) {
+        return [];
+    }
+    return [0xff, 0x2a, 0x01];
 }
 
 /**
@@ -311,11 +370,11 @@ function setDistanceCalibration(enable, distance) {
         throw new Error("distance_calibration.distance must be a number");
     }
 
-    var buffer = new Buffer(6);
+    var buffer = new Buffer(5);
     buffer.writeUInt8(0xff);
     buffer.writeUInt8(0xab);
     buffer.writeUInt8(enable);
-    buffer.writeUInt16LE(distance);
+    buffer.writeInt16LE(distance);
     return buffer.toBytes();
 }
 
@@ -357,16 +416,16 @@ function setBlindDetectionEnable(blind_detection_enable) {
 
 /**
  * set recollection config
- * @param {number} recollection_count range: [1, 3]
+ * @param {number} recollection_counts range: [1, 3]
  * @param {number} recollection_interval range: [1, 10]
- * @example { "recollection_count": 3, "recollection_interval": 10 }
+ * @example { "recollection_counts": 3, "recollection_interval": 10 }
  */
-function setRecollection(recollection_count, recollection_interval) {
-    if (typeof recollection_count !== "number") {
-        throw new Error("recollection_count must be a number");
+function setRecollection(recollection_counts, recollection_interval) {
+    if (typeof recollection_counts !== "number") {
+        throw new Error("recollection_counts must be a number");
     }
-    if (recollection_count < 1 || recollection_count > 3) {
-        throw new Error("recollection_count must be in range [1, 3]");
+    if (recollection_counts < 1 || recollection_counts > 3) {
+        throw new Error("recollection_counts must be in range [1, 3]");
     }
     if (typeof recollection_interval !== "number") {
         throw new Error("recollection_interval must be a number");
@@ -378,7 +437,7 @@ function setRecollection(recollection_count, recollection_interval) {
     var buffer = new Buffer(4);
     buffer.writeUInt8(0xff);
     buffer.writeUInt8(0x1c);
-    buffer.writeUInt8(recollection_count);
+    buffer.writeUInt8(recollection_counts);
     buffer.writeUInt8(recollection_interval);
     return buffer.toBytes();
 }
@@ -402,81 +461,89 @@ function setSignalQuality(signal_quality) {
 
 /**
  * threshold sensitive
- * @param {number} threshold_sensitive
- * @example { "threshold_sensitive": 10 }
+ * @param {number} distance_threshold_sensitive
+ * @example { "distance_threshold_sensitive": 10 }
  */
-function setThresholdSensitive(threshold_sensitive) {
-    if (typeof threshold_sensitive !== "number") {
-        throw new Error("threshold_sensitive must be a number");
+function setDistanceThresholdSensitive(distance_threshold_sensitive) {
+    if (typeof distance_threshold_sensitive !== "number") {
+        throw new Error("distance_threshold_sensitive must be a number");
     }
 
     var buffer = new Buffer(4);
     buffer.writeUInt8(0xf9);
     buffer.writeUInt8(0x15);
-    buffer.writeInt16LE(threshold_sensitive * 10);
+    buffer.writeInt16LE(distance_threshold_sensitive * 10);
     return buffer.toBytes();
 }
 
 /**
  * set peak sort
- * @param {number} peak_sort values: (0: "closest", 1: "strongest")
- * @example { "peak_sort": 0 }
+ * @param {number} peak_sorting values: (0: "closest", 1: "strongest")
+ * @example { "peak_sorting": 0 }
  */
-function setPeakSort(peak_sort) {
-    var peak_sort_values = [0, 1];
-    if (peak_sort_values.indexOf(peak_sort) === -1) {
-        throw new Error("peak_sort must be one of " + peak_sort_values.join(", "));
+function setPeakSortingAlgorithm(peak_sorting) {
+    var peak_sorting_values = [0, 1];
+    if (peak_sorting_values.indexOf(peak_sorting) === -1) {
+        throw new Error("peak_sorting must be one of " + peak_sorting_values.join(", "));
     }
 
     var buffer = new Buffer(3);
     buffer.writeUInt8(0xf9);
     buffer.writeUInt8(0x16);
-    buffer.writeUInt8(peak_sort);
+    buffer.writeUInt8(peak_sorting);
     return buffer.toBytes();
 }
 
 /**
- * set retransmit config
- * @param {number} enable values: (0: "disable", 1: "enable")
- * @param {number} interval range: [30, 1200], unit: seconds
- * @example { "retransmit_config": { "enable": 1, "interval": 60 } }
+ * retransmit enable
+ * @param {number} retransmit_enable
+ * @example { "retransmit_enable": 1 }
  */
-function setRetransmitConfig(enable, interval) {
-    var enable_values = [0, 1];
-    if (enable_values.indexOf(enable) === -1) {
-        throw new Error("retransmit_config.enable must be one of " + enable_values.join(", "));
+function setRetransmitEnable(retransmit_enable) {
+    var retransmit_enable_values = [0, 1];
+    if (retransmit_enable_values.indexOf(retransmit_enable) === -1) {
+        throw new Error("retransmit_enable must be one of " + retransmit_enable_values.join(", "));
     }
-    if (typeof interval !== "number") {
-        throw new Error("retransmit_config.interval must be a number");
-    }
-    if (interval < 30 || interval > 1200) {
-        throw new Error("retransmit_config.interval must be in range [30, 1200]");
+
+    var buffer = new Buffer(3);
+    buffer.writeUInt8(0xff);
+    buffer.writeUInt8(0x69);
+    buffer.writeUInt8(retransmit_enable);
+    return buffer.toBytes();
+}
+
+/**
+ * retransmit interval
+ * @param {number} retransmit_interval unit: second
+ * @example { "retransmit_interval": 60 }
+ */
+function setRetransmitInterval(retransmit_interval) {
+    if (typeof retransmit_interval !== "number") {
+        throw new Error("retransmit_interval must be a number");
     }
 
     var buffer = new Buffer(5);
-    buffer.writeUInt8(0xf9);
-    buffer.writeUInt8(0x0d);
-    buffer.writeUInt8(enable);
-    buffer.writeUInt16LE(interval);
+    buffer.writeUInt8(0xff);
+    buffer.writeUInt8(0x6a);
+    buffer.writeUInt8(0x00);
+    buffer.writeUInt16LE(retransmit_interval);
     return buffer.toBytes();
 }
 
 /**
- * data resend interval
- * @param {number} resend_interval unit: second, range: [30, 1200]
+ * resend interval
+ * @param {number} resend_interval unit: second
  * @example { "resend_interval": 60 }
  */
 function setResendInterval(resend_interval) {
     if (typeof resend_interval !== "number") {
         throw new Error("resend_interval must be a number");
     }
-    if (resend_interval < 30 || resend_interval > 1200) {
-        throw new Error("resend_interval must be in range [30, 1200]");
-    }
 
-    var buffer = new Buffer(4);
-    buffer.writeUInt8(0xf9);
-    buffer.writeUInt8(0x0e);
+    var buffer = new Buffer(5);
+    buffer.writeUInt8(0xff);
+    buffer.writeUInt8(0x6b);
+    buffer.writeUInt8(0x01);
     buffer.writeUInt16LE(resend_interval);
     return buffer.toBytes();
 }
@@ -547,6 +614,24 @@ function fetchHistory(start_time, end_time) {
         buffer.writeUInt32LE(end_time);
     }
 
+    return buffer.toBytes();
+}
+
+/**
+ * tilt and distance link
+ * @param {number} tilt_distance_link values: (0: disable, 1: enable)
+ * @example { "tilt_distance_link": 1 }
+ */
+function setTiltAndDistanceLink(tilt_distance_link) {
+    var tilt_distance_link_values = [0, 1];
+    if (tilt_distance_link_values.indexOf(tilt_distance_link) === -1) {
+        throw new Error("tilt_distance_link must be one of " + tilt_distance_link_values.join(", "));
+    }
+
+    var buffer = new Buffer(3);
+    buffer.writeUInt8(0xff);
+    buffer.writeUInt8(0x3e);
+    buffer.writeUInt8(tilt_distance_link);
     return buffer.toBytes();
 }
 
